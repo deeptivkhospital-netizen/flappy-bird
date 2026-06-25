@@ -2,24 +2,42 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>My Flappy Bird Cloud</title>
+    <title>Flappy Cloud Game</title>
+    <link rel="manifest" href="manifest.json">
     <style>
-        body { text-align: center; background-color: #70c5ce; font-family: Arial; margin: 0; padding: 0; overflow: hidden; }
-        canvas { display: block; margin: 0 auto; background-color: #70c5ce; }
+        body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: 'Arial', sans-serif; }
+        canvas { display: block; }
+        
+        /* UI Buttons */
+        #aiBtn { position: absolute; top: 10px; left: 10px; padding: 10px; background: #FF4A4A; color: white; border: none; border-radius: 8px; font-weight: bold; z-index: 5; }
+        #installBtn { display: none; position: absolute; top: 10px; left: 90px; padding: 10px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: bold; z-index: 5; }
+        
+        /* Leaderboard UI */
+        #top3Container { position: absolute; top: 10px; right: 10px; width: 140px; height: 80px; background: rgba(0,0,0,0.4); border-radius: 10px; color: white; padding: 5px; cursor: pointer; z-index: 5; text-align: center; }
+        #leaderboardModal { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: #ffffff; border-radius: 20px; padding: 20px; overflow-y: auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); z-index: 10; border: 4px solid #FAD02C; }
     </style>
-    
-    <!-- Google Cloud (Firebase) Connections -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
+    <button id="aiBtn" onclick="toggleAI()">🤖 AI: OFF</button>
+    <button id="installBtn">📥 Install</button>
+    
+    <div id="top3Container" onclick="openModal()">
+        <div style="font-weight:bold; font-size:12px; margin-bottom:5px;">☁️ TOP 3</div>
+        <div id="miniList" style="font-size:11px; text-align:left;"></div>
+    </div>
+
+    <div id="leaderboardModal">
+        <h2 style="color: #FF4A4A; text-align: center;">Top 100 Players</h2>
+        <ul id="scoreList" style="text-align: left; list-style: none; padding: 0;"></ul>
+        <button onclick="closeModal()" style="padding:15px; width:100%; background:#333; color:white; border:none; border-radius:10px; font-weight:bold;">Close</button>
+    </div>
+
     <canvas id="gameCanvas"></canvas>
 
     <script>
-        // ==========================================
-        // YOUR OFFICIAL FIREBASE KEYS ARE PLUGGED IN!
-        // ==========================================
         const firebaseConfig = {
             apiKey: "AIzaSyDlt5HxOU7JI46UV2S-h6yfcBUucYpjR8w",
             authDomain: "flappycloud-a020e.firebaseapp.com",
@@ -28,208 +46,96 @@
             messagingSenderId: "1068210507083",
             appId: "1:1068210507083:web:e96916766c3330dad2ecce"
         };
-        // ==========================================
-
-        // Start Google Cloud!
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        // --- PWA Install Logic ---
+        let deferredPrompt;
+        const installBtn = document.getElementById('installBtn');
+        window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; installBtn.style.display = 'block'; });
+        installBtn.addEventListener('click', (e) => { deferredPrompt.prompt(); deferredPrompt = null; installBtn.style.display = 'none'; });
 
-        // Pixel Art Bird Data
-        const birdPixels = [
-            [0,0,1,1,1,1,1,0,0], [0,1,2,2,2,3,3,1,0], [1,2,2,2,3,4,4,3,1],
-            [1,2,2,2,3,3,3,3,1], [0,1,1,1,5,5,5,5,1], [0,0,1,5,5,5,5,1,0], [0,0,0,1,1,1,1,0,0]
-        ];
-        const colors = { 1: "#000", 2: "#FAD02C", 3: "#FFF", 4: "#000", 5: "#FF4A4A" };
-        const pixelSize = 4;
-
-        let bird = { x: 50, y: canvas.height / 2, width: 36, height: 28, gravity: 0.6, velocity: 0, jump: -9 };
-        let pipes = []; 
-        let frames = 0; 
-        let score = 0;
-        let isGameOver = false;
-        const groundHeight = 60; 
-
-        // ==========================================
-        //  CLOUD LEADERBOARD SYSTEM
-        // ==========================================
-        let topPlayers = []; 
+        // --- AI & Leaderboard ---
+        let isAI = false;
+        function toggleAI() { isAI = !isAI; document.getElementById("aiBtn").innerText = isAI ? "🤖 AI: ON" : "🤖 AI: OFF"; document.getElementById("aiBtn").style.background = isAI ? "#2ecc71" : "#FF4A4A"; }
         
-        // Listen to YOUR Cloud for the top 3 scores
         db.collection("leaderboard").orderBy("score", "desc").limit(3).onSnapshot((snapshot) => {
-            topPlayers = [];
-            snapshot.forEach((doc) => {
-                topPlayers.push({ name: doc.id, score: doc.data().score });
-            });
+            let mini = document.getElementById("miniList"); mini.innerHTML = "";
+            snapshot.forEach((doc, i) => { mini.innerHTML += `<div>${i+1}. ${doc.id}: ${doc.data().score}</div>`; });
         });
 
-        let myUsername = localStorage.getItem("flappy_cloud_name");
+        function openModal() {
+            document.getElementById("leaderboardModal").style.display = "block";
+            db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
+                let list = document.getElementById("scoreList"); list.innerHTML = "";
+                snapshot.forEach((doc, index) => { list.innerHTML += `<li style="padding: 12px; border-bottom: 1px solid #eee;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`; });
+            });
+        }
+        function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
+
+        // --- Game Core ---
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+
+        const birdSprite = [[0,0,1,1,1,1,0,0],[0,1,2,2,2,3,1,0],[1,2,2,2,3,3,1,0],[1,2,2,2,2,2,2,1],[0,1,1,4,4,4,1,0],[0,0,1,1,1,1,0,0]];
+        const colors = { 1: "#000", 2: "#FAD02C", 3: "#FFF", 4: "#FF4A4A" };
+
+        let bird = { x: 50, y: canvas.height/2, gravity: 0.5, velocity: 0, jump: -8 };
+        let pipes = []; let frames = 0; let score = 0; let isGameOver = false;
+        let myUsername = localStorage.getItem("flappy_cloud_name") || "Player" + Math.floor(Math.random() * 1000);
         let bestScore = localStorage.getItem("flappy_cloud_score") || 0;
 
-        if (!myUsername) {
-            myUsername = prompt("Enter a cool Player Nickname:");
-            if (!myUsername) myUsername = "Player" + Math.floor(Math.random() * 1000);
-            localStorage.setItem("flappy_cloud_name", myUsername);
-        }
-
-        // Function to save score to YOUR Cloud
-        function saveToCloud(newScore) {
-            if (newScore > bestScore) {
-                bestScore = newScore;
-                localStorage.setItem("flappy_cloud_score", bestScore);
-                
-                db.collection("leaderboard").doc(myUsername).set({
-                    score: bestScore
-                }).catch((error) => {
-                    console.log("Error saving to cloud:", error);
-                });
-            }
-        }
-        // ==========================================
-
-        function tapScreen() {
-            if (isGameOver) {
-                bird.y = canvas.height / 2;
-                bird.velocity = 0;
-                score = 0;
-                pipes = []; 
-                frames = 0;
-                isGameOver = false;
-                gameLoop();
-            } else {
-                bird.velocity = bird.jump; 
-            }
-        }
-
-        window.addEventListener("touchstart", function(e) {
-            e.preventDefault();
-            tapScreen();
-        }, { passive: false });
-
         function drawBird(x, y) {
-            for (let row = 0; row < birdPixels.length; row++) {
-                for (let col = 0; col < birdPixels[row].length; col++) {
-                    if (birdPixels[row][col] !== 0) {
-                        ctx.fillStyle = colors[birdPixels[row][col]];
-                        ctx.fillRect(x + (col * pixelSize), y + (row * pixelSize), pixelSize, pixelSize);
-                    }
+            let size = 6;
+            for(let r=0; r<birdSprite.length; r++) {
+                for(let c=0; c<birdSprite[r].length; c++) {
+                    if(birdSprite[r][c] !== 0) { ctx.fillStyle = colors[birdSprite[r][c]]; ctx.fillRect(x + c*size, y + r*size, size, size); }
                 }
             }
         }
 
-        function drawScenery() {
-            ctx.fillStyle = "#70c5ce";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-            ctx.beginPath(); ctx.arc(canvas.width*0.2, canvas.height*0.3, 30, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = "#a8e6b3"; 
-            ctx.beginPath(); ctx.arc(60, canvas.height-groundHeight, 70, 0, Math.PI*2); ctx.fill();
+        function drawPipe(x, y, h, isTop) {
+            ctx.fillStyle = "#73BF2E"; ctx.fillRect(x, y, 60, h);
+            ctx.strokeRect(x, y, 60, h); ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20); ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
         }
 
-        function drawMovingGround() {
-            let groundY = canvas.height - groundHeight;
-            ctx.fillStyle = "#ded895"; ctx.fillRect(0, groundY, canvas.width, groundHeight);
-            ctx.fillStyle = "#73bf2e"; ctx.fillRect(0, groundY, canvas.width, 15);
-            ctx.fillStyle = "#559122";
-            let speedOffset = (frames * 3) % 40; 
-            for (let i = -40; i < canvas.width; i += 40) {
-                ctx.beginPath(); ctx.moveTo(i - speedOffset, groundY); ctx.lineTo(i - speedOffset + 15, groundY);
-                ctx.lineTo(i - speedOffset + 5, groundY + 15); ctx.lineTo(i - speedOffset - 10, groundY + 15); ctx.fill();
-            }
+        function tap() {
+            if (isGameOver) { bird.y = canvas.height/2; bird.velocity=0; score=0; pipes=[]; frames=0; isGameOver=false; gameLoop(); }
+            else { bird.velocity = bird.jump; }
         }
 
-        function drawLeaderboard() {
-            ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-            ctx.fillRect(canvas.width - 150, 10, 140, 90);
-            
-            ctx.fillStyle = "#FAD02C";
-            ctx.font = "bold 14px Arial";
-            ctx.fillText("☁️ CLOUD TOP 3", canvas.width - 140, 30);
-            
-            ctx.fillStyle = "white";
-            ctx.font = "12px Arial";
-            for(let i = 0; i < topPlayers.length; i++) {
-                let text = (i+1) + ". " + topPlayers[i].name + ": " + topPlayers[i].score;
-                ctx.fillText(text, canvas.width - 140, 50 + (i * 15));
-            }
-        }
+        window.addEventListener("touchstart", function(e) { e.preventDefault(); tap(); }, { passive: false });
 
         function gameLoop() {
             if (isGameOver) return;
-            frames++; 
-            bird.velocity += bird.gravity; bird.y += bird.velocity;
-
-            drawScenery();
-
-            if (frames % 100 === 0) {
-                let gapSize = 160; 
-                let topH = Math.random() * (canvas.height - groundHeight - gapSize - 100) + 50;
-                pipes.push({ x: canvas.width, topH: topH, bottomY: topH + gapSize, w: 60, passed: false });
+            frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
+            
+            if (isAI && pipes.length > 0) {
+                let nextPipe = pipes[0];
+                if (bird.y > nextPipe.topH + 80) { tap(); }
             }
 
-            for (let i = 0; i < pipes.length; i++) {
-                let p = pipes[i]; p.x -= 3; 
-                ctx.fillStyle = "#73BF2E"; 
-                ctx.fillRect(p.x, 0, p.w, p.topH); ctx.fillRect(p.x, p.bottomY, p.w, canvas.height - p.bottomY);
-                ctx.strokeStyle = "#543847"; ctx.lineWidth = 3;
-                ctx.strokeRect(p.x, 0, p.w, p.topH); ctx.strokeRect(p.x, p.bottomY, p.w, canvas.height - p.bottomY);
-                ctx.fillRect(p.x - 4, p.topH - 20, p.w + 8, 20); ctx.strokeRect(p.x - 4, p.topH - 20, p.w + 8, 20);
-                ctx.fillRect(p.x - 4, p.bottomY, p.w + 8, 20); ctx.strokeRect(p.x - 4, p.bottomY, p.w + 8, 20);
+            ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
+            pipes.forEach((p, i) => {
+                p.x -= 3; drawPipe(p.x, 0, p.topH, true); drawPipe(p.x, p.topH + 160, canvas.height - (p.topH + 160), false);
+                if(bird.x+36 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+28 > p.topH+160)) isGameOver=true;
+                if(p.x < -60) { pipes.splice(i, 1); score++; }
+            });
 
-                if (bird.x + bird.width > p.x && bird.x < p.x + p.w) {
-                    if (bird.y < p.topH || bird.y + bird.height > p.bottomY) isGameOver = true;
-                }
-
-                if (p.x + p.w < bird.x && p.passed === false) { score += 1; p.passed = true; }
-            }
-
-            drawMovingGround(); drawBird(bird.x, bird.y);
-
-            // Current Score
-            ctx.fillStyle = "white"; ctx.strokeStyle = "black"; ctx.lineWidth = 4; ctx.font = "bold 50px Arial";
-            ctx.strokeText(score, canvas.width / 2 - 15, 80); ctx.fillText(score, canvas.width / 2 - 15, 80);
-
-            drawLeaderboard();
-
-            // Personal Score Box
-            ctx.font = "bold 16px Arial"; ctx.lineWidth = 2;
-            ctx.strokeText("⭐ You: " + bestScore, 10, 30); ctx.fillText("⭐ You: " + bestScore, 10, 30);
-
-            if (bird.y + bird.height >= canvas.height - groundHeight || bird.y < 0) isGameOver = true;
-
+            drawBird(bird.x, bird.y);
+            ctx.fillStyle="white"; ctx.font="bold 40px Arial"; ctx.fillText(score, canvas.width/2-10, 80);
+            
+            if (bird.y > canvas.height - 50) isGameOver = true;
             if (isGameOver) {
-                saveToCloud(score); // Send score up to the database!
-
-                ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = "#FF4A4A"; ctx.strokeStyle = "black"; ctx.lineWidth = 3; ctx.font = "bold 40px Arial";
-                ctx.strokeText("CRASH!", canvas.width / 2 - 80, canvas.height / 2 - 40); ctx.fillText("CRASH!", canvas.width / 2 - 80, canvas.height / 2 - 40);
-                ctx.fillStyle = "white"; ctx.font = "20px Arial"; ctx.fillText("Tap to try again", canvas.width / 2 - 70, canvas.height / 2 + 30);
-            } else {
-                requestAnimationFrame(gameLoop);
-            }
+                if (score > bestScore) { bestScore = score; localStorage.setItem("flappy_cloud_score", bestScore); db.collection("leaderboard").doc(myUsername).set({ score: bestScore }); }
+            } else { requestAnimationFrame(gameLoop); }
         }
-
         gameLoop();
     </script>
 </body>
-</html>            authDomain: "flappycloud-a020e.firebaseapp.com",
-            projectId: "flappycloud-a020e",
-            storageBucket: "flappycloud-a020e.firebasestorage.app",
-            messagingSenderId: "1068210507083",
-            appId: "1:1068210507083:web:e96916766c3330dad2ecce"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-
-        // Update UI Automatically
-        db.collection("leaderboard").orderBy("score", "desc").limit(3).onSnapshot((snapshot) => {
-            let mini = document.getElementById("miniList");
-            mini.innerHTML = "";
-            snapshot.forEach((doc, i) => {
+</html> => {
                 mini.innerHTML += `<div>${i+1}. ${doc.id}: ${doc.data().score}</div>`;
             });
         });
