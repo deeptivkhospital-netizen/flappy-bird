@@ -6,10 +6,8 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: 'Arial', sans-serif; }
         canvas { display: block; }
-        
-        #rankBtn { position: absolute; top: 15px; left: 15px; padding: 12px 24px; background: #FAD02C; border: none; border-radius: 25px; font-weight: bold; font-size: 16px; cursor: pointer; z-index: 5; box-shadow: 0 4px 0 #b38e00; }
-        
-        #leaderboardModal { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: #ffffff; border-radius: 20px; padding: 20px; overflow-y: auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); z-index: 10; border: 4px solid #FAD02C; }
+        #rankBtn { position: absolute; top: 15px; left: 15px; padding: 12px 24px; background: #FAD02C; border: 2px solid #000; border-radius: 10px; font-weight: bold; cursor: pointer; z-index: 5; }
+        #leaderboardModal { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: #ded895; border: 4px solid #559122; border-radius: 10px; padding: 20px; overflow-y: auto; z-index: 10; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -19,9 +17,9 @@
     <button id="rankBtn" onclick="openModal()">🏆 Rank</button>
 
     <div id="leaderboardModal">
-        <h2 style="color: #FF4A4A; text-align: center;">Top 100 Players</h2>
+        <h2 style="color: #559122; text-align: center;">Top 100 Players</h2>
         <ul id="scoreList" style="text-align: left; list-style: none; padding: 0;"></ul>
-        <button onclick="closeModal()" style="padding:15px; width:100%; background:#333; color:white; border:none; border-radius:10px; font-weight:bold;">Close</button>
+        <button onclick="closeModal()" style="padding:15px; width:100%; background:#559122; color:white; border:none; font-weight:bold;">Close</button>
     </div>
 
     <canvas id="gameCanvas"></canvas>
@@ -38,19 +36,36 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        function openModal() {
-            document.getElementById("leaderboardModal").style.display = "block";
-            db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
-                let list = document.getElementById("scoreList");
-                list.innerHTML = "";
-                snapshot.forEach((doc, index) => {
-                    list.innerHTML += `<li style="padding: 12px; border-bottom: 1px solid #eee; font-size: 18px;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`;
-                });
-            });
-        }
-        function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
+        // --- Original Flappy Bird Art Data ---
+        const birdSprite = [
+            [0,0,1,1,1,1,0,0], [0,1,2,2,2,3,1,0], [1,2,2,2,3,3,1,0],
+            [1,2,2,2,2,2,2,1], [0,1,1,4,4,4,1,0], [0,0,1,1,1,1,0,0]
+        ];
+        const colors = { 1: "#000", 2: "#FAD02C", 3: "#FFF", 4: "#FF4A4A" };
 
-        // --- Game Setup ---
+        function drawBird(x, y) {
+            let size = 6;
+            for(let r=0; r<birdSprite.length; r++) {
+                for(let c=0; c<birdSprite[r].length; c++) {
+                    if(birdSprite[r][c] !== 0) {
+                        ctx.fillStyle = colors[birdSprite[r][c]];
+                        ctx.fillRect(x + c*size, y + r*size, size, size);
+                    }
+                }
+            }
+        }
+
+        function drawPipe(x, y, h, isTop) {
+            ctx.fillStyle = "#73BF2E";
+            ctx.fillRect(x, y, 60, h);
+            ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, 60, h);
+            // Cap
+            ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
+            ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
+        }
+
+        // --- Game Logic ---
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
         canvas.width = window.innerWidth;
@@ -58,15 +73,23 @@
 
         let bird = { x: 50, y: canvas.height/2, gravity: 0.5, velocity: 0, jump: -8 };
         let pipes = []; let frames = 0; let score = 0; let isGameOver = false;
-        let myUsername = localStorage.getItem("flappy_cloud_name") || "Player" + Math.floor(Math.random() * 1000);
-        let bestScore = localStorage.getItem("flappy_cloud_score") || 0;
+        
+        // ... (Firebase and Modal functions remain the same)
+        function openModal() {
+            document.getElementById("leaderboardModal").style.display = "block";
+            db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
+                let list = document.getElementById("scoreList");
+                list.innerHTML = "";
+                snapshot.forEach((doc, index) => {
+                    list.innerHTML += `<li style="padding: 10px; border-bottom: 1px solid #559122;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score}</li>`;
+                });
+            });
+        }
+        function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
 
         function saveToCloud(newScore) {
-            if (newScore > bestScore) {
-                bestScore = newScore;
-                localStorage.setItem("flappy_cloud_score", bestScore);
-                db.collection("leaderboard").doc(myUsername).set({ score: bestScore });
-            }
+            let myUsername = localStorage.getItem("flappy_cloud_name") || "Player";
+            db.collection("leaderboard").doc(myUsername).set({ score: newScore });
         }
 
         window.addEventListener("touchstart", function(e) { e.preventDefault(); tap(); }, { passive: false });
@@ -75,23 +98,11 @@
             else { bird.velocity = bird.jump; }
         }
 
-        function drawPipe(x, y, h, isTop) {
-            ctx.fillStyle = "#73BF2E";
-            ctx.fillRect(x, y, 60, h);
-            ctx.strokeStyle = "#4a7a20"; ctx.lineWidth = 4; ctx.strokeRect(x, y, 60, h);
-            // Cap
-            ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-            ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-        }
-
         function gameLoop() {
             if (isGameOver) return;
             frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
             
-            // Sky Gradient
-            let grad = ctx.createLinearGradient(0,0,0,canvas.height);
-            grad.addColorStop(0, "#70c5ce"); grad.addColorStop(1, "#a8e6b3");
-            ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
             
@@ -99,12 +110,13 @@
                 p.x -= 3;
                 drawPipe(p.x, 0, p.topH, true);
                 drawPipe(p.x, p.topH + 160, canvas.height - (p.topH + 160), false);
-                if(bird.x+30 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+30 > p.topH+160)) isGameOver=true;
+                if(bird.x+36 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+28 > p.topH+160)) isGameOver=true;
                 if(p.x < -60) { pipes.splice(i, 1); score++; }
             });
 
-            ctx.fillStyle="yellow"; ctx.shadowBlur=10; ctx.shadowColor="orange"; ctx.fillRect(bird.x, bird.y, 30, 30);
-            ctx.shadowBlur=0; ctx.fillStyle="white"; ctx.font="bold 40px Arial"; ctx.fillText(score, canvas.width/2-15, 80);
+            drawBird(bird.x, bird.y);
+            ctx.fillStyle="white"; ctx.strokeStyle="black"; ctx.lineWidth=3;
+            ctx.font="bold 50px Arial"; ctx.strokeText(score, canvas.width/2-10, 80); ctx.fillText(score, canvas.width/2-10, 80);
             
             if (bird.y > canvas.height - 50) isGameOver = true;
             if (isGameOver) saveToCloud(score);
