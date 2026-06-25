@@ -2,15 +2,14 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Flappy Cloud Game</title>
+    <title>Flappy Cloud</title>
     <link rel="manifest" href="manifest.json">
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: 'Arial', sans-serif; }
         canvas { display: block; }
         
-        /* UI Buttons */
-        #aiBtn { position: absolute; top: 10px; left: 10px; padding: 10px; background: #FF4A4A; color: white; border: none; border-radius: 8px; font-weight: bold; z-index: 5; }
-        #installBtn { display: none; position: absolute; top: 10px; left: 90px; padding: 10px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: bold; z-index: 5; }
+        /* Install Button */
+        #installBtn { display: none; position: absolute; top: 10px; left: 10px; padding: 10px 15px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: bold; z-index: 5; box-shadow: 0 4px 0 #27ae60; cursor: pointer; }
         
         /* Leaderboard UI */
         #top3Container { position: absolute; top: 10px; right: 10px; width: 140px; height: 80px; background: rgba(0,0,0,0.4); border-radius: 10px; color: white; padding: 5px; cursor: pointer; z-index: 5; text-align: center; }
@@ -21,8 +20,7 @@
 </head>
 <body>
 
-    <button id="aiBtn" onclick="toggleAI()">🤖 AI: OFF</button>
-    <button id="installBtn">📥 Install</button>
+    <button id="installBtn">📥 Install App</button>
     
     <div id="top3Container" onclick="openModal()">
         <div style="font-weight:bold; font-size:12px; margin-bottom:5px;">☁️ TOP 3</div>
@@ -55,10 +53,7 @@
         window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; installBtn.style.display = 'block'; });
         installBtn.addEventListener('click', (e) => { deferredPrompt.prompt(); deferredPrompt = null; installBtn.style.display = 'none'; });
 
-        // --- AI & Leaderboard ---
-        let isAI = false;
-        function toggleAI() { isAI = !isAI; document.getElementById("aiBtn").innerText = isAI ? "🤖 AI: ON" : "🤖 AI: OFF"; document.getElementById("aiBtn").style.background = isAI ? "#2ecc71" : "#FF4A4A"; }
-        
+        // --- Leaderboard ---
         db.collection("leaderboard").orderBy("score", "desc").limit(3).onSnapshot((snapshot) => {
             let mini = document.getElementById("miniList"); mini.innerHTML = "";
             snapshot.forEach((doc, i) => { mini.innerHTML += `<div>${i+1}. ${doc.id}: ${doc.data().score}</div>`; });
@@ -111,11 +106,6 @@
             if (isGameOver) return;
             frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
             
-            if (isAI && pipes.length > 0) {
-                let nextPipe = pipes[0];
-                if (bird.y > nextPipe.topH + 80) { tap(); }
-            }
-
             ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
             if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
             pipes.forEach((p, i) => {
@@ -135,59 +125,7 @@
         gameLoop();
     </script>
 </body>
-</html> => {
-                mini.innerHTML += `<div>${i+1}. ${doc.id}: ${doc.data().score}</div>`;
-            });
-        });
-
-        function openModal() {
-            document.getElementById("leaderboardModal").style.display = "block";
-            db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
-                let list = document.getElementById("scoreList");
-                list.innerHTML = "";
-                snapshot.forEach((doc, index) => {
-                    list.innerHTML += `<li style="padding: 12px; border-bottom: 1px solid #eee; font-size: 18px;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`;
-                });
-            });
-        }
-        function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
-
-        // --- Game Setup ---
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-
-        const birdSprite = [[0,0,1,1,1,1,0,0],[0,1,2,2,2,3,1,0],[1,2,2,2,3,3,1,0],[1,2,2,2,2,2,2,1],[0,1,1,4,4,4,1,0],[0,0,1,1,1,1,0,0]];
-        const colors = { 1: "#000", 2: "#FAD02C", 3: "#FFF", 4: "#FF4A4A" };
-
-        let bird = { x: 50, y: canvas.height/2, gravity: 0.5, velocity: 0, jump: -8 };
-        let pipes = []; let frames = 0; let score = 0; let isGameOver = false;
-        let myUsername = localStorage.getItem("flappy_cloud_name") || "Player" + Math.floor(Math.random() * 1000);
-        let bestScore = localStorage.getItem("flappy_cloud_score") || 0;
-
-        function drawBird(x, y) {
-            let size = 6;
-            for(let r=0; r<birdSprite.length; r++) {
-                for(let c=0; c<birdSprite[r].length; c++) {
-                    if(birdSprite[r][c] !== 0) {
-                        ctx.fillStyle = colors[birdSprite[r][c]];
-                        ctx.fillRect(x + c*size, y + r*size, size, size);
-                    }
-                }
-            }
-        }
-
-        function drawPipe(x, y, h, isTop) {
-            ctx.fillStyle = "#73BF2E"; ctx.fillRect(x, y, 60, h);
-            ctx.strokeRect(x, y, 60, h);
-            ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-            ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-        }
-
-        function gameLoop() {
-            if (isGameOver) return;
-            frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
+</html>         frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
             ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
