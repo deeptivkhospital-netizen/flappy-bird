@@ -4,14 +4,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Flappy Cloud Game</title>
     <style>
-        body { margin: 0; padding: 0; background-color: #70c5ce; font-family: Arial; overflow: hidden; }
+        body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: 'Arial', sans-serif; }
         canvas { display: block; }
         
-        /* Rank Button */
-        #rankBtn { position: absolute; top: 10px; left: 10px; padding: 10px 20px; background: #FAD02C; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; z-index: 5; }
+        #rankBtn { position: absolute; top: 15px; left: 15px; padding: 12px 24px; background: #FAD02C; border: none; border-radius: 25px; font-weight: bold; font-size: 16px; cursor: pointer; z-index: 5; box-shadow: 0 4px 0 #b38e00; }
         
-        /* Leaderboard Modal */
-        #leaderboardModal { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: white; border-radius: 15px; padding: 20px; overflow-y: auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); z-index: 10; }
+        #leaderboardModal { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: #ffffff; border-radius: 20px; padding: 20px; overflow-y: auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); z-index: 10; border: 4px solid #FAD02C; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -23,13 +21,12 @@
     <div id="leaderboardModal">
         <h2 style="color: #FF4A4A; text-align: center;">Top 100 Players</h2>
         <ul id="scoreList" style="text-align: left; list-style: none; padding: 0;"></ul>
-        <button onclick="closeModal()" style="padding:15px; width:100%; background:#ccc; border:none; border-radius:5px; font-weight:bold;">Close</button>
+        <button onclick="closeModal()" style="padding:15px; width:100%; background:#333; color:white; border:none; border-radius:10px; font-weight:bold;">Close</button>
     </div>
 
     <canvas id="gameCanvas"></canvas>
 
     <script>
-        // Firebase Setup
         const firebaseConfig = {
             apiKey: "AIzaSyDlt5HxOU7JI46UV2S-h6yfcBUucYpjR8w",
             authDomain: "flappycloud-a020e.firebaseapp.com",
@@ -41,26 +38,25 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // Modal Logic
         function openModal() {
             document.getElementById("leaderboardModal").style.display = "block";
             db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
                 let list = document.getElementById("scoreList");
                 list.innerHTML = "";
                 snapshot.forEach((doc, index) => {
-                    list.innerHTML += `<li style="padding: 10px; border-bottom: 1px solid #eee;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`;
+                    list.innerHTML += `<li style="padding: 12px; border-bottom: 1px solid #eee; font-size: 18px;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`;
                 });
             });
         }
         function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
 
-        // Game Logic
+        // --- Game Setup ---
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        let bird = { x: 50, y: canvas.height / 2, gravity: 0.6, velocity: 0, jump: -9 };
+        let bird = { x: 50, y: canvas.height/2, gravity: 0.5, velocity: 0, jump: -8 };
         let pipes = []; let frames = 0; let score = 0; let isGameOver = false;
         let myUsername = localStorage.getItem("flappy_cloud_name") || "Player" + Math.floor(Math.random() * 1000);
         let bestScore = localStorage.getItem("flappy_cloud_score") || 0;
@@ -79,21 +75,36 @@
             else { bird.velocity = bird.jump; }
         }
 
+        function drawPipe(x, y, h, isTop) {
+            ctx.fillStyle = "#73BF2E";
+            ctx.fillRect(x, y, 60, h);
+            ctx.strokeStyle = "#4a7a20"; ctx.lineWidth = 4; ctx.strokeRect(x, y, 60, h);
+            // Cap
+            ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
+            ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
+        }
+
         function gameLoop() {
             if (isGameOver) return;
             frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
-            ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Sky Gradient
+            let grad = ctx.createLinearGradient(0,0,0,canvas.height);
+            grad.addColorStop(0, "#70c5ce"); grad.addColorStop(1, "#a8e6b3");
+            ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
             
             if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
             
             pipes.forEach((p, i) => {
-                p.x -= 3; ctx.fillStyle = "#73BF2E"; ctx.fillRect(p.x, 0, 60, p.topH);
-                if(bird.x > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y > p.topH+160)) isGameOver=true;
+                p.x -= 3;
+                drawPipe(p.x, 0, p.topH, true);
+                drawPipe(p.x, p.topH + 160, canvas.height - (p.topH + 160), false);
+                if(bird.x+30 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+30 > p.topH+160)) isGameOver=true;
                 if(p.x < -60) { pipes.splice(i, 1); score++; }
             });
 
-            ctx.fillStyle="yellow"; ctx.fillRect(bird.x, bird.y, 30, 30);
-            ctx.fillStyle="white"; ctx.font="30px Arial"; ctx.fillText(score, 20, 80);
+            ctx.fillStyle="yellow"; ctx.shadowBlur=10; ctx.shadowColor="orange"; ctx.fillRect(bird.x, bird.y, 30, 30);
+            ctx.shadowBlur=0; ctx.fillStyle="white"; ctx.font="bold 40px Arial"; ctx.fillText(score, canvas.width/2-15, 80);
             
             if (bird.y > canvas.height - 50) isGameOver = true;
             if (isGameOver) saveToCloud(score);
