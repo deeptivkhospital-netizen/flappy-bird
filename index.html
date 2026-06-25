@@ -5,36 +5,45 @@
     <title>Flappy Cloud</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: 'Arial', sans-serif; }
-        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+        body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: sans-serif; }
         
-        /* Buttons - High Z-Index to stay on top */
-        #installBtn { position: absolute; top: 10px; left: 10px; padding: 12px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: bold; z-index: 99; cursor: pointer; }
-        #top3Container { position: absolute; top: 10px; right: 10px; width: 140px; height: auto; background: rgba(0,0,0,0.6); border: 2px solid white; border-radius: 10px; color: white; padding: 10px; cursor: pointer; z-index: 99; text-align: center; }
+        /* Ensure game is in the background and doesn't block buttons */
+        #gameCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
         
-        #leaderboardModal { display: none; position: absolute; top: 5%; left: 5%; width: 90%; height: 90%; background: #ffffff; border-radius: 20px; padding: 20px; overflow-y: auto; z-index: 100; border: 4px solid #FAD02C; }
+        /* Buttons are given high z-index and pointer-events so they always work */
+        .ui-btn { position: absolute; z-index: 100; cursor: pointer; }
+        #installBtn { top: 20px; left: 20px; padding: 15px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: bold; }
+        #top3Container { top: 20px; right: 20px; width: 120px; padding: 10px; background: rgba(0,0,0,0.5); color: white; border-radius: 8px; text-align: center; }
+        
+        #leaderboardModal { display: none; position: absolute; top: 10%; left: 10%; width: 80%; height: 80%; background: white; z-index: 200; border-radius: 20px; padding: 20px; overflow-y: auto; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 
-    <button id="installBtn">📥 Install App</button>
-    
-    <div id="top3Container" onclick="openModal()">
-        <div style="font-weight:bold; font-size:14px; margin-bottom:5px;">☁️ TOP 3</div>
-        <div id="miniList" style="font-size:12px; text-align:left;">Loading scores...</div>
-    </div>
+    <!-- Buttons -->
+    <button id="installBtn" class="ui-btn" onclick="tryInstall()">📥 Install</button>
+    <div id="top3Container" class="ui-btn" onclick="openModal()">☁️ LEADERBOARD</div>
 
     <div id="leaderboardModal">
-        <h2 style="color: #FF4A4A; text-align: center;">Top 100 Players</h2>
-        <ul id="scoreList" style="text-align: left; list-style: none; padding: 0;"></ul>
-        <button onclick="closeModal()" style="padding:15px; width:100%; background:#333; color:white; border:none; border-radius:10px; font-weight:bold;">Close</button>
+        <h2 style="text-align: center;">Top Scores</h2>
+        <ul id="scoreList"></ul>
+        <button onclick="document.getElementById('leaderboardModal').style.display='none'" style="width:100%; padding:15px;">Close</button>
     </div>
 
     <canvas id="gameCanvas"></canvas>
 
     <script>
+        // --- INSTALL LOGIC ---
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => { deferredPrompt = e; });
+        function tryInstall() {
+            if (deferredPrompt) { deferredPrompt.prompt(); } 
+            else { alert("To install: Tap the 3-dots in your browser menu and choose 'Add to Home Screen'."); }
+        }
+
+        // --- LEADERBOARD LOGIC ---
         const firebaseConfig = {
             apiKey: "AIzaSyDlt5HxOU7JI46UV2S-h6yfcBUucYpjR8w",
             authDomain: "flappycloud-a020e.firebaseapp.com",
@@ -46,138 +55,36 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // --- Install Logic ---
-        let deferredPrompt;
-        window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
-        document.getElementById('installBtn').addEventListener('click', (e) => { 
-            if (deferredPrompt) { deferredPrompt.prompt(); } else { alert("Use your browser's menu (3 dots) -> 'Add to Home screen' to install."); }
-        });
-
-        // --- Leaderboard ---
-        db.collection("leaderboard").orderBy("score", "desc").limit(3).onSnapshot((snapshot) => {
-            let mini = document.getElementById("miniList"); 
-            mini.innerHTML = snapshot.empty ? "No scores yet" : "";
-            snapshot.forEach((doc, i) => { mini.innerHTML += `<div>${i+1}. ${doc.id}: ${doc.data().score}</div>`; });
-        });
-
         function openModal() {
-            document.getElementById("leaderboardModal").style.display = "block";
-            db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
-                let list = document.getElementById("scoreList"); list.innerHTML = "";
-                snapshot.forEach((doc, index) => { list.innerHTML += `<li style="padding: 10px; border-bottom: 1px solid #eee;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`; });
+            document.getElementById('leaderboardModal').style.display = 'block';
+            db.collection("leaderboard").orderBy("score", "desc").limit(10).get().then(snap => {
+                let list = document.getElementById('scoreList'); list.innerHTML = "";
+                snap.forEach(doc => { list.innerHTML += `<li>${doc.id}: ${doc.data().score}</li>`; });
             });
         }
-        function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
 
-        // --- Game Logic ---
+        // --- GAME LOGIC ---
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
         canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 
-        let bird = { x: 50, y: canvas.height/2, gravity: 0.5, velocity: 0, jump: -8 };
-        let pipes = []; let frames = 0; let score = 0; let isGameOver = false;
-
-        function tap() {
-            if (isGameOver) { bird.y = canvas.height/2; bird.velocity=0; score=0; pipes=[]; frames=0; isGameOver=false; gameLoop(); }
-            else { bird.velocity = bird.jump; }
-        }
-        window.addEventListener("touchstart", function(e) { e.preventDefault(); tap(); }, { passive: false });
-
-        function gameLoop() {
-            if (isGameOver) return;
-            frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
+        let birdY = canvas.height/2; let velocity = 0;
+        function draw() {
             ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
-            pipes.forEach((p, i) => {
-                p.x -= 3; ctx.fillStyle = "#73BF2E"; ctx.fillRect(p.x, 0, 60, p.topH); ctx.fillRect(p.x, p.topH + 160, 60, canvas.height);
-                if(bird.x+36 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+28 > p.topH+160)) isGameOver=true;
-                if(p.x < -60) { pipes.splice(i, 1); score++; }
-            });
-            ctx.fillStyle="white"; ctx.fillRect(bird.x, bird.y, 30, 30);
-            ctx.font="bold 40px Arial"; ctx.fillText(score, canvas.width/2-10, 80);
-            if (bird.y > canvas.height - 50) isGameOver = true;
-            if (isGameOver) { /* Add scoring logic here */ } else { requestAnimationFrame(gameLoop); }
+            ctx.fillStyle = "yellow"; ctx.fillRect(50, birdY, 30, 30);
+            velocity += 0.5; birdY += velocity;
+            if (birdY > canvas.height) birdY = canvas.height/2;
+            requestAnimationFrame(draw);
         }
-        gameLoop();
+        
+        // Use document body for game taps so it doesn't conflict with buttons
+        document.body.addEventListener("touchstart", (e) => {
+            if (e.target.className !== 'ui-btn') velocity = -8;
+        });
+        draw();
     </script>
 </body>
-</html>
-    <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyDlt5HxOU7JI46UV2S-h6yfcBUucYpjR8w",
-            authDomain: "flappycloud-a020e.firebaseapp.com",
-            projectId: "flappycloud-a020e",
-            storageBucket: "flappycloud-a020e.firebasestorage.app",
-            messagingSenderId: "1068210507083",
-            appId: "1:1068210507083:web:e96916766c3330dad2ecce"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-
-        // --- PWA Install Logic ---
-        let deferredPrompt;
-        const installBtn = document.getElementById('installBtn');
-        window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; installBtn.style.display = 'block'; });
-        installBtn.addEventListener('click', (e) => { deferredPrompt.prompt(); deferredPrompt = null; installBtn.style.display = 'none'; });
-
-        // --- Leaderboard ---
-        db.collection("leaderboard").orderBy("score", "desc").limit(3).onSnapshot((snapshot) => {
-            let mini = document.getElementById("miniList"); mini.innerHTML = "";
-            snapshot.forEach((doc, i) => { mini.innerHTML += `<div>${i+1}. ${doc.id}: ${doc.data().score}</div>`; });
-        });
-
-        function openModal() {
-            document.getElementById("leaderboardModal").style.display = "block";
-            db.collection("leaderboard").orderBy("score", "desc").limit(100).get().then((snapshot) => {
-                let list = document.getElementById("scoreList"); list.innerHTML = "";
-                snapshot.forEach((doc, index) => { list.innerHTML += `<li style="padding: 12px; border-bottom: 1px solid #eee;">${index + 1}. <b>${doc.id}</b> — ${doc.data().score} pts</li>`; });
-            });
-        }
-        function closeModal() { document.getElementById("leaderboardModal").style.display = "none"; }
-
-        // --- Game Core ---
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-
-        const birdSprite = [[0,0,1,1,1,1,0,0],[0,1,2,2,2,3,1,0],[1,2,2,2,3,3,1,0],[1,2,2,2,2,2,2,1],[0,1,1,4,4,4,1,0],[0,0,1,1,1,1,0,0]];
-        const colors = { 1: "#000", 2: "#FAD02C", 3: "#FFF", 4: "#FF4A4A" };
-
-        let bird = { x: 50, y: canvas.height/2, gravity: 0.5, velocity: 0, jump: -8 };
-        let pipes = []; let frames = 0; let score = 0; let isGameOver = false;
-        let myUsername = localStorage.getItem("flappy_cloud_name") || "Player" + Math.floor(Math.random() * 1000);
-        let bestScore = localStorage.getItem("flappy_cloud_score") || 0;
-
-        function drawBird(x, y) {
-            let size = 6;
-            for(let r=0; r<birdSprite.length; r++) {
-                for(let c=0; c<birdSprite[r].length; c++) {
-                    if(birdSprite[r][c] !== 0) { ctx.fillStyle = colors[birdSprite[r][c]]; ctx.fillRect(x + c*size, y + r*size, size, size); }
-                }
-            }
-        }
-
-        function drawPipe(x, y, h, isTop) {
-            ctx.fillStyle = "#73BF2E"; ctx.fillRect(x, y, 60, h);
-            ctx.strokeRect(x, y, 60, h); ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20); ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-        }
-
-        function tap() {
-            if (isGameOver) { bird.y = canvas.height/2; bird.velocity=0; score=0; pipes=[]; frames=0; isGameOver=false; gameLoop(); }
-            else { bird.velocity = bird.jump; }
-        }
-
-        window.addEventListener("touchstart", function(e) { e.preventDefault(); tap(); }, { passive: false });
-
-        function gameLoop() {
-            if (isGameOver) return;
-            frames++; bird.velocity += bird.gravity; bird.y += bird.velocity;
-            
-            ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            if (frames % 100 === 0) pipes.push({ x: canvas.width, topH: Math.random()*200+50 });
-            pipes.forEach((p, i) => {
-                p.x -= 3; drawPipe(p.x, 0, p.topH, true); drawPipe(p.x, p.topH + 160, canvas.height - (p.topH + 160), false);
-                if(bird.x+36 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+28 > p.topH+160)) isGameOver=true;
+</html>6 > p.x && bird.x < p.x+60 && (bird.y < p.topH || bird.y+28 > p.topH+160)) isGameOver=true;
                 if(p.x < -60) { pipes.splice(i, 1); score++; }
             });
 
