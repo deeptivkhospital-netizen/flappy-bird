@@ -7,14 +7,13 @@
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background: #70c5ce; font-family: sans-serif; }
         
-        /* UI Layer - Puts buttons on top and makes them clickable */
         .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
         .ui-btn { pointer-events: auto; position: absolute; padding: 15px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 rgba(0,0,0,0.2); }
         
         #installBtn { top: 20px; left: 20px; }
         #leaderBtn { top: 20px; right: 20px; background: #3498db; }
+        #nameBtn { bottom: 20px; left: 20px; background: #9b59b6; } /* New Name Button */
         
-        /* Leaderboard Modal */
         #leaderboardModal { display: none; position: absolute; top: 10%; left: 10%; width: 80%; height: 75%; background: #ded895; z-index: 200; border: 4px solid #559122; border-radius: 20px; padding: 20px; overflow-y: auto; pointer-events: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         
         #gameCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
@@ -28,6 +27,7 @@
     <div class="ui-layer">
         <button id="installBtn" class="ui-btn" onclick="alert('To install: Tap the 3-dots in your Chrome menu and choose \'Add to Home screen\'.')">📥 Install</button>
         <button id="leaderBtn" class="ui-btn" onclick="openModal()">🏆 Scores</button>
+        <button id="nameBtn" class="ui-btn" onclick="setName()">✏️ Name</button>
     </div>
 
     <div id="leaderboardModal">
@@ -40,156 +40,46 @@
 
     <script>
         // --- 1. FIREBASE SETUP ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyDlt5HxOU7JI46UV2S-h6yfcBUucYpjR8w",
-            authDomain: "flappycloud-a020e.firebaseapp.com",
-            projectId: "flappycloud-a020e",
-            storageBucket: "flappycloud-a020e.firebasestorage.app",
-            messagingSenderId: "1068210507083",
-            appId: "1:1068210507083:web:e96916766c3330dad2ecce"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
+        let db = null;
+        try {
+            if (typeof firebase !== 'undefined') {
+                const firebaseConfig = {
+                    apiKey: "AIzaSyDlt5HxOU7JI46UV2S-h6yfcBUucYpjR8w",
+                    authDomain: "flappycloud-a020e.firebaseapp.com",
+                    projectId: "flappycloud-a020e",
+                    storageBucket: "flappycloud-a020e.firebasestorage.app",
+                    messagingSenderId: "1068210507083",
+                    appId: "1:1068210507083:web:e96916766c3330dad2ecce"
+                };
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+            }
+        } catch (error) { console.log("Database skipped"); }
 
-        // Player Data
-        let myUsername = localStorage.getItem("flappy_cloud_name") || "Player_" + Math.floor(Math.random() * 9999);
-        localStorage.setItem("flappy_cloud_name", myUsername);
-        let bestScore = parseInt(localStorage.getItem("flappy_cloud_score")) || 0;
+        let myUsername = "Player_" + Math.floor(Math.random() * 9999);
+        let bestScore = 0;
+        try {
+            myUsername = localStorage.getItem("flappy_cloud_name") || myUsername;
+            localStorage.setItem("flappy_cloud_name", myUsername);
+            bestScore = parseInt(localStorage.getItem("flappy_cloud_score")) || 0;
+        } catch (e) {}
+
+        // --- CUSTOM NAME LOGIC ---
+        function setName() {
+            let newName = prompt("Enter your player name:", myUsername);
+            if (newName && newName.trim() !== "") {
+                myUsername = newName.trim();
+                try { localStorage.setItem("flappy_cloud_name", myUsername); } catch(e) {}
+                // Update DB immediately if they already have a score
+                if (bestScore > 0 && db) {
+                    db.collection("leaderboard").doc(myUsername).set({ score: bestScore });
+                }
+                alert("Name saved as: " + myUsername);
+            }
+        }
 
         // --- 2. LEADERBOARD LOGIC ---
         function openModal() {
             document.getElementById('leaderboardModal').style.display = 'block';
             let list = document.getElementById("scoreList");
-            list.innerHTML = "Loading...";
-            
-            db.collection("leaderboard").orderBy("score", "desc").limit(20).get().then((snapshot) => {
-                list.innerHTML = "";
-                let rank = 1;
-                snapshot.forEach((doc) => {
-                    list.innerHTML += `<li style="padding: 10px; border-bottom: 2px dashed rgba(0,0,0,0.1);"><b>${rank}. ${doc.id}</b> — ${doc.data().score} pts</li>`;
-                    rank++;
-                });
-                if(list.innerHTML === "") list.innerHTML = "<li>No scores yet!</li>";
-            }).catch(err => { list.innerHTML = "Error loading scores."; });
-        }
-
-        function closeModal() {
-            document.getElementById('leaderboardModal').style.display = 'none';
-        }
-
-        // --- 3. GAME CORE ---
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
-
-        // Textures
-        const birdSprite = [[0,0,1,1,1,1,0,0],[0,1,2,2,2,3,1,0],[1,2,2,2,3,3,1,0],[1,2,2,2,2,2,2,1],[0,1,1,4,4,4,1,0],[0,0,1,1,1,1,0,0]];
-        const colors = { 1: "#000", 2: "#FAD02C", 3: "#FFF", 4: "#FF4A4A" };
-
-        let bird = { x: 50, y: canvas.height/2, velocity: 0 };
-        let pipe = { x: canvas.width, topH: 200 };
-        let crashed = false;
-        let score = 0;
-        let pipePassed = false;
-
-        function drawBird(x, y) {
-            let s = 6;
-            for(let r=0; r<birdSprite.length; r++) {
-                for(let c=0; c<birdSprite[r].length; c++) {
-                    if(birdSprite[r][c] !== 0) { ctx.fillStyle = colors[birdSprite[r][c]]; ctx.fillRect(x + c*s, y + r*s, s, s); }
-                }
-            }
-        }
-
-        function drawPipe(x, y, h, isTop) {
-            ctx.fillStyle = "#73BF2E"; ctx.fillRect(x, y, 60, h);
-            ctx.strokeRect(x, y, 60, h);
-            ctx.fillStyle = "#73BF2E"; ctx.fillRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-            ctx.strokeRect(x - 5, isTop ? y + h - 20 : y, 70, 20);
-        }
-
-        function gameLoop() {
-            ctx.fillStyle = "#70c5ce"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            if (!crashed) {
-                // Move pipes
-                pipe.x -= 3;
-                
-                // Score logic: if pipe passes bird
-                if (pipe.x < bird.x - 60 && !pipePassed) {
-                    score++;
-                    pipePassed = true;
-                }
-
-                // Reset pipe
-                if(pipe.x < -60) {
-                    pipe.x = canvas.width;
-                    pipe.topH = Math.random() * (canvas.height - 300) + 50; // Randomize next pipe gap height
-                    pipePassed = false;
-                }
-                
-                drawPipe(pipe.x, 0, pipe.topH, true);
-                drawPipe(pipe.x, pipe.topH + 150, canvas.height, false);
-
-                // Apply gravity
-                bird.velocity += 0.5;
-                bird.y += bird.velocity;
-                
-                // Crash Detection (Floor or Pipes)
-                if(bird.y > canvas.height - 30 || (bird.x + 36 > pipe.x && bird.x < pipe.x + 60 && (bird.y < pipe.topH || bird.y > pipe.topH + 100))) {
-                    crashed = true;
-                    
-                    // Save High Score on crash
-                    if (score > bestScore) {
-                        bestScore = score;
-                        localStorage.setItem("flappy_cloud_score", bestScore);
-                        db.collection("leaderboard").doc(myUsername).set({ score: bestScore });
-                    }
-                }
-            } else {
-                // Draw static pipes for Crash Screen
-                drawPipe(pipe.x, 0, pipe.topH, true);
-                drawPipe(pipe.x, pipe.topH + 150, canvas.height, false);
-                
-                // Dim screen & text
-                ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(0,0,canvas.width, canvas.height);
-                ctx.fillStyle = "white"; 
-                ctx.font = "bold 40px Arial"; ctx.fillText("CRASHED", canvas.width/2 - 100, canvas.height/2 - 20);
-                ctx.font = "20px Arial"; ctx.fillText("Tap to Restart", canvas.width/2 - 65, canvas.height/2 + 30);
-            }
-
-            drawBird(bird.x, bird.y);
-
-            // Draw Live Score
-            ctx.fillStyle = "white"; 
-            ctx.font = "bold 50px Arial"; 
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 3;
-            ctx.strokeText(score, canvas.width/2 - 15, 80);
-            ctx.fillText(score, canvas.width/2 - 15, 80);
-
-            requestAnimationFrame(gameLoop);
-        }
-
-        // --- 4. TOUCH CONTROLS ---
-        document.body.addEventListener("touchstart", (e) => {
-            if (e.target.className !== 'ui-btn' && e.target.tagName !== 'BUTTON') {
-                if (crashed) {
-                    // Reset Game
-                    crashed = false;
-                    bird.y = canvas.height/2; 
-                    bird.velocity = 0; 
-                    pipe.x = canvas.width;
-                    score = 0;
-                    pipePassed = false;
-                } else {
-                    // Jump
-                    bird.velocity = -8;
-                }
-            }
-        }, { passive: false });
-
-        gameLoop();
-    </script>
-</body>
-</html>
+            if (!db) { list.
